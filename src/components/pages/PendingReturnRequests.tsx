@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { setReturnRequests, updateReturnRequest, setLoading, setError, addProcessedRequest } from '../../store/slices/appSlice';
+import { updateBorrowRequest, setLoading, setError, addProcessedRequest } from '../../store/slices/appSlice';
 import { FirestoreService } from '../../services/firestoreService';
-import { ReturnRequest } from '../../types';
+import { BorrowRequest, ProcessedRequest } from '../../types';
 import { 
   PageTitle, 
   Card, 
@@ -73,140 +73,65 @@ const ActionButtons = styled.div`
   justify-content: flex-end;
 `;
 
-const OverdueBadge = styled(Badge)`
-  background-color: ${colors.danger};
-  color: white;
-`;
-
 const PendingReturnRequests: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { returnRequests, loading, error } = useAppSelector((state) => state.app);
+  const { loading, error } = useAppSelector((state) => state.app);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [pendingReturns, setPendingReturns] = useState<BorrowRequest[]>([]);
 
-  useEffect(() => {
-    loadReturnRequests();
-    
-    // Set up real-time listener
-    const unsubscribe = FirestoreService.onReturnRequestsChange((requests) => {
-      dispatch(setReturnRequests(requests));
-    });
-
-    return () => unsubscribe();
-  }, [dispatch]);
-
-  const loadReturnRequests = async () => {
+  const loadPendingReturns = async () => {
     dispatch(setLoading(true));
     try {
-      const requests = await FirestoreService.getReturnRequests();
-      const pendingRequests = requests.filter(req => req.status === 'pending');
-      dispatch(setReturnRequests(pendingRequests));
+      // Use the new method to get pending return requests
+      const pendingReturnRequests = await FirestoreService.getPendingReturnRequests();
+      console.log('Loaded pending return requests:', pendingReturnRequests.length);
+      setPendingReturns(pendingReturnRequests);
     } catch (error: any) {
-      console.error('Error loading return requests:', error);
+      console.error('Error loading pending returns:', error);
       dispatch(setError(error.message));
     } finally {
       dispatch(setLoading(false));
     }
   };
 
-  const handleApproveReturn = async (request: ReturnRequest) => {
+  useEffect(() => {
+    loadPendingReturns();
+  }, [dispatch]);
+
+  const handleProcessReturn = async (request: BorrowRequest, approve: boolean) => {
     setProcessingRequest(request.id);
     
     try {
-      const updateData = {
-        status: 'approved' as const,
-        processedBy: 'admin',
-        processedAt: new Date(),
-        returnedAt: new Date(),
-      };
-
-      await FirestoreService.updateReturnRequest(request.id, updateData);
+      await FirestoreService.processReturnRequest(request.id, request.bookId, approve);
       
-      const updatedRequest = { ...request, ...updateData };
-      dispatch(updateReturnRequest(updatedRequest));
-
-      // Add to processed requests
-      const processedRequest = {
-        id: request.id,
-        type: 'return' as const,
-        userId: request.userId,
-        userName: request.userName,
-        userEmail: request.userEmail,
-        bookId: request.bookId,
-        bookTitle: request.bookTitle,
-        bookAuthor: request.bookAuthor,
-        requestedAt: request.returnRequestedAt,
-        processedAt: new Date(),
-        processedBy: 'admin',
-        status: 'approved' as const,
-      };
-
-      await FirestoreService.addProcessedRequest(processedRequest);
-      dispatch(addProcessedRequest(processedRequest));
-
-      setSuccessMessage(`Return request for "${request.bookTitle}" has been approved.`);
+      if (approve) {
+        setSuccessMessage(`Return for "${request.bookTitle}" has been approved ✅`);
+      } else {
+        setSuccessMessage(`Return request for "${request.bookTitle}" has been rejected ❌`);
+      }
+      
       setTimeout(() => setSuccessMessage(null), 3000);
+      
+      // Reload the pending returns
+      await loadPendingReturns();
     } catch (error: any) {
-      console.error('Error approving return:', error);
-      dispatch(setError(error.message));
+      console.error('Error processing return:', error);
+      dispatch(setError(error.message || 'Failed to process return request'));
     } finally {
       setProcessingRequest(null);
     }
   };
 
-  const handleRejectReturn = async (request: ReturnRequest) => {
-    setProcessingRequest(request.id);
-    
-    try {
-      const updateData = {
-        status: 'rejected' as const,
-        processedBy: 'admin',
-        processedAt: new Date(),
-      };
-
-      await FirestoreService.updateReturnRequest(request.id, updateData);
-      
-      const updatedRequest = { ...request, ...updateData };
-      dispatch(updateReturnRequest(updatedRequest));
-
-      // Add to processed requests
-      const processedRequest = {
-        id: request.id,
-        type: 'return' as const,
-        userId: request.userId,
-        userName: request.userName,
-        userEmail: request.userEmail,
-        bookId: request.bookId,
-        bookTitle: request.bookTitle,
-        bookAuthor: request.bookAuthor,
-        requestedAt: request.returnRequestedAt,
-        processedAt: new Date(),
-        processedBy: 'admin',
-        status: 'rejected' as const,
-      };
-
-      await FirestoreService.addProcessedRequest(processedRequest);
-      dispatch(addProcessedRequest(processedRequest));
-
-      setSuccessMessage(`Return request for "${request.bookTitle}" has been rejected.`);
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (error: any) {
-      console.error('Error rejecting return:', error);
-      dispatch(setError(error.message));
-    } finally {
-      setProcessingRequest(null);
-    }
-  };
-
-  const isOverdue = (dueDate: Date) => {
-    return new Date() > dueDate;
-  };
-
-  const getDaysOverdue = (dueDate: Date) => {
+  const calculateDaysOverdue = (borrowDate: Date): number => {
     const today = new Date();
-    const diffTime = today.getTime() - dueDate.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+    const dueDate = new Date(borrowDate);
+    dueDate.setDate(dueDate.getDate() + 14); // Assuming 14-day loan period
+    
+    if (today > dueDate) {
+      return Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+    }
+    return 0;
   };
 
   if (loading) {
@@ -223,37 +148,48 @@ const PendingReturnRequests: React.FC = () => {
       <FlexContainer justify="space-between" align="center">
         <PageTitle>Pending Return Requests</PageTitle>
         <Badge variant="warning">
-          ⏰ {returnRequests.length} Pending
+          📚 {pendingReturns.length} Books Out
         </Badge>
       </FlexContainer>
 
       {error && <ErrorMessage>{error}</ErrorMessage>}
       {successMessage && <SuccessMessage>{successMessage}</SuccessMessage>}
 
-      {returnRequests.length === 0 ? (
+      {pendingReturns.length === 0 ? (
         <Card>
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <div style={{ fontSize: '48px', color: colors.success }}>✅</div>
-            <h3 style={{ marginTop: '16px' }}>No Pending Returns</h3>
+            <h3 style={{ marginTop: '16px' }}>No Pending Return Requests</h3>
             <p>All return requests have been processed!</p>
           </div>
         </Card>
       ) : (
-        returnRequests.map((request) => {
-          const overdue = isOverdue(request.dueDate);
-          const daysOverdue = overdue ? getDaysOverdue(request.dueDate) : 0;
+        pendingReturns.map((request) => {
+          const daysOverdue = calculateDaysOverdue(request.timeStamp);
+          const isOverdue = daysOverdue > 0;
+          const hasPenalty = (request.penaltyAmount || 0) > 0;
+          const isPenaltyPaid = request.isPaid || false;
+          const canApprove = request.canApprove !== false; // Default to true if not set
           
           return (
             <RequestCard key={request.id}>
               <RequestHeader>
                 <RequestInfo>
                   <RequestTitle>{request.bookTitle}</RequestTitle>
-                  <Badge variant="info">Return requested by {request.userName}</Badge>
-                  {overdue && (
-                    <OverdueBadge>
-                      ⚠️ Overdue by {daysOverdue} days
-                    </OverdueBadge>
-                  )}
+                  <FlexContainer gap="8px">
+                    <Badge variant="info">📖 Return by {request.userName}</Badge>
+                    {isOverdue && (
+                      <Badge variant="danger">⚠️ {daysOverdue} days overdue</Badge>
+                    )}
+                    {hasPenalty && (
+                      <Badge variant={isPenaltyPaid ? "success" : "danger"}>
+                        💰 ₹{request.penaltyAmount} {isPenaltyPaid ? "Paid" : "Pending"}
+                      </Badge>
+                    )}
+                    {!canApprove && (
+                      <Badge variant="warning">⚠️ Penalty not paid</Badge>
+                    )}
+                  </FlexContainer>
                 </RequestInfo>
               </RequestHeader>
 
@@ -263,47 +199,50 @@ const PendingReturnRequests: React.FC = () => {
                   <DetailValue>{request.bookAuthor}</DetailValue>
                 </DetailItem>
                 <DetailItem>
-                  <DetailLabel>User Email</DetailLabel>
+                  <DetailLabel>Borrower Email</DetailLabel>
                   <DetailValue>{request.userEmail}</DetailValue>
                 </DetailItem>
                 <DetailItem>
-                  <DetailLabel>Borrowed At</DetailLabel>
+                  <DetailLabel>Borrowed Date</DetailLabel>
                   <DetailValue>
-                    {request.borrowedAt.toLocaleDateString()} at {request.borrowedAt.toLocaleTimeString()}
+                    {request.timeStamp.toLocaleDateString()} at {request.timeStamp.toLocaleTimeString()}
                   </DetailValue>
                 </DetailItem>
                 <DetailItem>
-                  <DetailLabel>Due Date</DetailLabel>
-                  <DetailValue style={{ color: overdue ? colors.danger : colors.primaryText }}>
-                    {request.dueDate.toLocaleDateString()} at {request.dueDate.toLocaleTimeString()}
-                  </DetailValue>
+                  <DetailLabel>Book ID</DetailLabel>
+                  <DetailValue>{request.bookId}</DetailValue>
                 </DetailItem>
-                <DetailItem>
-                  <DetailLabel>Return Requested At</DetailLabel>
-                  <DetailValue>
-                    {request.returnRequestedAt.toLocaleDateString()} at {request.returnRequestedAt.toLocaleTimeString()}
-                  </DetailValue>
-                </DetailItem>
-                <DetailItem>
-                  <DetailLabel>Status</DetailLabel>
-                  <Badge variant="warning">Pending Return</Badge>
-                </DetailItem>
+                {hasPenalty && (
+                  <>
+                    <DetailItem>
+                      <DetailLabel>Penalty Amount</DetailLabel>
+                      <DetailValue>₹{request.penaltyAmount}</DetailValue>
+                    </DetailItem>
+                    <DetailItem>
+                      <DetailLabel>Payment Status</DetailLabel>
+                      <DetailValue style={{ color: isPenaltyPaid ? colors.success : colors.danger }}>
+                        {isPenaltyPaid ? '✅ Paid' : '❌ Not Paid'}
+                      </DetailValue>
+                    </DetailItem>
+                  </>
+                )}
               </RequestDetails>
 
               <ActionButtons>
                 <Button
                   variant="danger"
-                  onClick={() => handleRejectReturn(request)}
+                  onClick={() => handleProcessReturn(request, false)}
                   disabled={processingRequest === request.id}
                 >
-                  ❌ Reject Return
+                  {processingRequest === request.id ? '⏳ Processing...' : '❌ Reject Return'}
                 </Button>
                 <Button
                   variant="success"
-                  onClick={() => handleApproveReturn(request)}
-                  disabled={processingRequest === request.id}
+                  onClick={() => handleProcessReturn(request, true)}
+                  disabled={processingRequest === request.id || !canApprove}
+                  title={!canApprove ? "Cannot approve: Penalty payment required" : ""}
                 >
-                  ✅ Approve Return
+                  {processingRequest === request.id ? '⏳ Processing...' : '✅ Approve Return'}
                 </Button>
               </ActionButtons>
             </RequestCard>

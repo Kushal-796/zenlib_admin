@@ -1,120 +1,224 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { setProcessedRequests, setLoading, setError } from '../../store/slices/appSlice';
+import { setLoading, setError } from '../../store/slices/appSlice';
 import { FirestoreService } from '../../services/firestoreService';
-import { ProcessedRequest } from '../../types';
-import { 
-  PageTitle, 
-  Card, 
-  Button, 
-  Badge, 
-  FlexContainer,
-  LoadingSpinner,
-  ErrorMessage,
-  Input,
-  colors 
-} from '../styles/GlobalStyles';
+import { BorrowRequest } from '../../types';
 
-const FilterContainer = styled.div`
-  display: flex;
-  gap: 16px;
+// Styled Components
+const Container = styled.div`
+  padding: 24px;
+`;
+
+const PageTitle = styled.h1`
+  color: #333;
+  font-size: 28px;
+  font-weight: 600;
   margin-bottom: 24px;
-  flex-wrap: wrap;
-  
-  @media (max-width: 768px) {
-    flex-direction: column;
-  }
 `;
 
-const FilterButton = styled(Button)<{ active: boolean }>`
-  background-color: ${props => props.active ? colors.info : 'transparent'};
-  color: ${props => props.active ? 'white' : colors.info};
-  border: 1px solid ${colors.info};
-  
-  &:hover {
-    background-color: ${colors.info};
-    color: white;
-  }
-`;
-
-const RequestCard = styled(Card)`
-  margin-bottom: 16px;
-`;
-
-const RequestHeader = styled.div`
+const HeaderContainer = styled.div`
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
+  align-items: center;
+  margin-bottom: 24px;
 `;
 
-const RequestInfo = styled.div`
-  flex: 1;
+const Badge = styled.span<{ variant: string }>`
+  background-color: ${props => {
+    switch (props.variant) {
+      case 'info': return '#3b82f6';
+      case 'success': return '#10b981';
+      case 'danger': return '#ef4444';
+      default: return '#6b7280';
+    }
+  }};
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
 `;
 
-const RequestTitle = styled.h3`
-  color: ${colors.primaryText};
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-`;
-
-const RequestDetails = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 16px;
+const SearchInput = styled.input`
+  width: 100%;
+  max-width: 400px;
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 24px;
   
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
+  &:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
   }
 `;
 
-const DetailItem = styled.div`
+const RequestCard = styled.div`
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+`;
+
+const RequestListItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+`;
+
+const StatusAvatar = styled.div<{ isApproved: boolean }>`
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: ${props => props.isApproved ? '#10b981' : '#ef4444'};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 18px;
+`;
+
+const RequestContent = styled.div`
+  flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 4px;
 `;
 
-const DetailLabel = styled.span`
+const BookTitle = styled.h3`
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+`;
+
+const UserInfo = styled.p`
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+`;
+
+const StatusChip = styled.span<{ isApproved: boolean }>`
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 12px;
   font-size: 12px;
-  color: #666;
-  text-transform: uppercase;
   font-weight: 500;
-  margin-bottom: 4px;
+  color: white;
+  background-color: ${props => props.isApproved ? '#10b981' : '#ef4444'};
+  margin-top: 4px;
+  width: fit-content;
 `;
 
-const DetailValue = styled.span`
-  color: ${colors.primaryText};
-  font-weight: 500;
+const LoadingSpinner = styled.div`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  
+  &::after {
+    content: '';
+    width: 32px;
+    height: 32px;
+    border: 3px solid #f3f4f6;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
 `;
 
-const SearchInput = styled(Input)`
-  flex: 1;
-  max-width: 300px;
+const ErrorMessage = styled.div`
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
 `;
 
-const ExportButton = styled(Button)`
-  margin-left: auto;
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 40px;
+  
+  .icon {
+    font-size: 48px;
+    color: #6b7280;
+    margin-bottom: 16px;
+  }
+  
+  h3 {
+    color: #111827;
+    margin: 0 0 8px 0;
+  }
+  
+  p {
+    color: #6b7280;
+    margin: 0;
+  }
 `;
-
-type FilterType = 'all' | 'borrow' | 'return' | 'approved' | 'rejected';
 
 const ProcessedHistory: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { processedRequests, loading, error } = useAppSelector((state) => state.app);
+  const { loading, error } = useAppSelector((state) => state.app);
+  const [processedRequests, setProcessedRequests] = useState<BorrowRequest[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState<FilterType>('all');
 
-  useEffect(() => {
-    loadProcessedRequests();
-  }, [dispatch]);
+  // Fetch user name (matches Flutter logic)
+  const getUserName = async (userId: string): Promise<string> => {
+    try {
+      const userDetails = await FirestoreService.getUser(userId);
+      return userDetails?.name || 'Unknown User';
+    } catch (e) {
+      console.error('Error fetching user name:', e);
+      return 'Unknown User';
+    }
+  };
+
+  // Fetch book title (matches Flutter logic)
+  const getBookTitle = async (bookId: string): Promise<string> => {
+    try {
+      const bookDetails = await FirestoreService.getBook(bookId);
+      return bookDetails?.title || 'Unknown Book';
+    } catch (e) {
+      console.error('Error fetching book title:', e);
+      return 'Unknown Book';
+    }
+  };
 
   const loadProcessedRequests = async () => {
     dispatch(setLoading(true));
     try {
-      const requests = await FirestoreService.getProcessedRequests();
-      dispatch(setProcessedRequests(requests));
+      // Stream processed requests (matches Flutter StreamBuilder logic)
+      const requests = await FirestoreService.getProcessedRequestsStream();
+      
+      // Fetch user and book details for each request
+      const requestsWithDetails = await Promise.all(
+        requests.map(async (request) => {
+          const [userName, bookTitle] = await Promise.all([
+            getUserName(request.userId),
+            getBookTitle(request.bookId)
+          ]);
+          
+          return {
+            ...request,
+            userName,
+            bookTitle
+          };
+        })
+      );
+      
+      setProcessedRequests(requestsWithDetails);
     } catch (error: any) {
       console.error('Error loading processed requests:', error);
       dispatch(setError(error.message));
@@ -123,215 +227,84 @@ const ProcessedHistory: React.FC = () => {
     }
   };
 
-  const filteredRequests = processedRequests.filter((request: ProcessedRequest) => {
-    const matchesSearch = 
-      request.bookTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.userEmail.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    loadProcessedRequests();
+  }, [dispatch]);
+
+  // Filter requests based on search term (matches Flutter filtering)
+  const filteredRequests = processedRequests.filter((request) => {
+    if (!searchTerm) return true;
     
-    if (!matchesSearch) return false;
-    
-    switch (filter) {
-      case 'borrow':
-        return request.type === 'borrow';
-      case 'return':
-        return request.type === 'return';
-      case 'approved':
-        return request.status === 'approved';
-      case 'rejected':
-        return request.status === 'rejected';
-      default:
-        return true;
-    }
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      request.bookTitle?.toLowerCase().includes(searchLower) ||
+      request.userName?.toLowerCase().includes(searchLower) ||
+      request.userEmail?.toLowerCase().includes(searchLower) ||
+      request.status.toLowerCase().includes(searchLower)
+    );
   });
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case 'approved':
-        return 'success';
-      case 'rejected':
-        return 'danger';
-      default:
-        return 'info';
-    }
-  };
-
-  const getTypeBadgeVariant = (type: string) => {
-    switch (type) {
-      case 'borrow':
-        return 'info';
-      case 'return':
-        return 'warning';
-      default:
-        return 'info';
-    }
-  };
-
-  const exportToCSV = () => {
-    const headers = [
-      'Date Processed',
-      'Type',
-      'Status',
-      'Book Title',
-      'Book Author',
-      'User Name',
-      'User Email',
-      'Processed By',
-      'Original Request Date'
-    ];
-    
-    const csvData = filteredRequests.map(request => [
-      request.processedAt.toLocaleDateString(),
-      request.type,
-      request.status,
-      request.bookTitle,
-      request.bookAuthor,
-      request.userName,
-      request.userEmail,
-      request.processedBy,
-      request.requestedAt.toLocaleDateString()
-    ]);
-    
-    const csvContent = [headers, ...csvData]
-      .map(row => row.map(field => `"${field}"`).join(','))
-      .join('\\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `processed_requests_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
 
   if (loading) {
     return (
-      <div>
-        <PageTitle>Processed History</PageTitle>
+      <Container>
+        <PageTitle>Processed Requests</PageTitle>
         <LoadingSpinner />
-      </div>
+      </Container>
     );
   }
 
   return (
-    <div>
-      <FlexContainer justify="space-between" align="center">
-        <PageTitle>Processed History</PageTitle>
+    <Container>
+      <HeaderContainer>
+        <PageTitle>Processed Requests</PageTitle>
         <Badge variant="info">{filteredRequests.length} Records</Badge>
-      </FlexContainer>
+      </HeaderContainer>
 
       {error && <ErrorMessage>{error}</ErrorMessage>}
 
-      <FlexContainer justify="space-between" align="center" style={{ marginBottom: '24px' }}>
-        <SearchInput
-          type="text"
-          placeholder="Search by book title, user name, or email..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-        <ExportButton variant="primary" onClick={exportToCSV}>
-          📊 Export CSV
-        </ExportButton>
-      </FlexContainer>
-
-      <FilterContainer>
-        <FilterButton 
-          active={filter === 'all'} 
-          onClick={() => setFilter('all')}
-          variant="info"
-        >
-          All ({processedRequests.length})
-        </FilterButton>
-        <FilterButton 
-          active={filter === 'borrow'} 
-          onClick={() => setFilter('borrow')}
-          variant="info"
-        >
-          Borrow Requests ({processedRequests.filter(r => r.type === 'borrow').length})
-        </FilterButton>
-        <FilterButton 
-          active={filter === 'return'} 
-          onClick={() => setFilter('return')}
-          variant="info"
-        >
-          Return Requests ({processedRequests.filter(r => r.type === 'return').length})
-        </FilterButton>
-        <FilterButton 
-          active={filter === 'approved'} 
-          onClick={() => setFilter('approved')}
-          variant="info"
-        >
-          Approved ({processedRequests.filter(r => r.status === 'approved').length})
-        </FilterButton>
-        <FilterButton 
-          active={filter === 'rejected'} 
-          onClick={() => setFilter('rejected')}
-          variant="info"
-        >
-          Rejected ({processedRequests.filter(r => r.status === 'rejected').length})
-        </FilterButton>
-      </FilterContainer>
+      <SearchInput
+        type="text"
+        placeholder="Search by book title, user name, email, or status..."
+        value={searchTerm}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+      />
 
       {filteredRequests.length === 0 ? (
-        <Card>
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <div style={{ fontSize: '48px', color: colors.secondaryText }}>📋</div>
-            <h3 style={{ marginTop: '16px' }}>No Records Found</h3>
-            <p>No processed requests match your current filters.</p>
-          </div>
-        </Card>
+        <RequestCard>
+          <EmptyState>
+            <div className="icon">📋</div>
+            <h3>No processed requests.</h3>
+            <p>No requests have been processed yet.</p>
+          </EmptyState>
+        </RequestCard>
       ) : (
-        filteredRequests.map((request) => (
-          <RequestCard key={request.id}>
-            <RequestHeader>
-              <RequestInfo>
-                <RequestTitle>{request.bookTitle}</RequestTitle>
-                <FlexContainer gap="8px" style={{ marginTop: '8px' }}>
-                  <Badge variant={getTypeBadgeVariant(request.type)}>
-                    {request.type === 'borrow' ? '📚 Borrow' : '↩️ Return'}
-                  </Badge>
-                  <Badge variant={getStatusBadgeVariant(request.status)}>
-                    {request.status === 'approved' ? '✅ Approved' : '❌ Rejected'}
-                  </Badge>
-                </FlexContainer>
-              </RequestInfo>
-            </RequestHeader>
-
-            <RequestDetails>
-              <DetailItem>
-                <DetailLabel>Book Author</DetailLabel>
-                <DetailValue>{request.bookAuthor}</DetailValue>
-              </DetailItem>
-              <DetailItem>
-                <DetailLabel>User</DetailLabel>
-                <DetailValue>{request.userName}</DetailValue>
-              </DetailItem>
-              <DetailItem>
-                <DetailLabel>Email</DetailLabel>
-                <DetailValue>{request.userEmail}</DetailValue>
-              </DetailItem>
-              <DetailItem>
-                <DetailLabel>Requested Date</DetailLabel>
-                <DetailValue>
-                  {request.requestedAt.toLocaleDateString()} at {request.requestedAt.toLocaleTimeString()}
-                </DetailValue>
-              </DetailItem>
-              <DetailItem>
-                <DetailLabel>Processed Date</DetailLabel>
-                <DetailValue>
-                  {request.processedAt.toLocaleDateString()} at {request.processedAt.toLocaleTimeString()}
-                </DetailValue>
-              </DetailItem>
-              <DetailItem>
-                <DetailLabel>Processed By</DetailLabel>
-                <DetailValue>{request.processedBy}</DetailValue>
-              </DetailItem>
-            </RequestDetails>
-          </RequestCard>
-        ))
+        filteredRequests.map((request) => {
+          const isApproved = request.status === 'approved';
+          
+          return (
+            <RequestCard key={request.id}>
+              <RequestListItem>
+                <StatusAvatar isApproved={isApproved}>
+                  {isApproved ? (
+                    <span>✓</span>
+                  ) : (
+                    <span>✕</span>
+                  )}
+                </StatusAvatar>
+                
+                <RequestContent>
+                  <BookTitle>{request.bookTitle}</BookTitle>
+                  <UserInfo>User: {request.userName}</UserInfo>
+                  <StatusChip isApproved={isApproved}>
+                    {request.status.toUpperCase()}
+                  </StatusChip>
+                </RequestContent>
+              </RequestListItem>
+            </RequestCard>
+          );
+        })
       )}
-    </div>
+    </Container>
   );
 };
 

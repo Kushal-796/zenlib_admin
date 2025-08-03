@@ -32,6 +32,17 @@ export interface BorrowRequest {
   processedBy?: string;
   isReturned: boolean;
   notes?: string;
+  // Additional fields for return requests
+  penaltyAmount?: number;
+  isPaid?: boolean;
+  isReturnRequest?: boolean;
+  canApprove?: boolean;
+  returnRequestStatus?: 'approved' | 'rejected';
+  // Date tracking fields
+  borrowDate?: Date;
+  returnDate?: Date;
+  approvedAt?: Date;
+  returnTimestamp?: Date;
 }
 
 export interface ReturnRequest {

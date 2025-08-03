@@ -127,17 +127,6 @@ const Dashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [restockAmounts, setRestockAmounts] = useState<{ [key: string]: number }>({});
 
-  useEffect(() => {
-    loadBooks();
-    
-    // Set up real-time listener
-    const unsubscribe = FirestoreService.onBooksChange((books) => {
-      dispatch(setBooks(books));
-    });
-
-    return () => unsubscribe();
-  }, [dispatch]);
-
   const loadBooks = async () => {
     dispatch(setLoading(true));
     try {
@@ -149,6 +138,17 @@ const Dashboard: React.FC = () => {
       dispatch(setLoading(false));
     }
   };
+
+  useEffect(() => {
+    loadBooks();
+    
+    // Set up real-time listener
+    const unsubscribe = FirestoreService.onBooksChange((books) => {
+      dispatch(setBooks(books));
+    });
+
+    return () => unsubscribe();
+  }, [dispatch]);
 
   const handleRestock = async (book: Book) => {
     const amount = restockAmounts[book.id] || 0;

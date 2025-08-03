@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
-import { setBorrowRequests, updateBorrowRequest, setLoading, setError, addProcessedRequest } from '../../store/slices/appSlice';
+import { setBorrowRequests, updateBorrowRequest, setLoading, setError } from '../../store/slices/appSlice';
 import { FirestoreService } from '../../services/firestoreService';
-import { BorrowRequest, ProcessedRequest } from '../../types';
+import { BorrowRequest } from '../../types';
 import { 
   PageTitle, 
   Card, 
@@ -12,6 +12,7 @@ import {
   FlexContainer,
   LoadingSpinner,
   ErrorMessage,
+  SuccessMessage,
   colors 
 } from '../styles/GlobalStyles';
 
@@ -21,7 +22,7 @@ const RequestCard = styled(Card)`
 
 const RequestHeader = styled.div`
   display: flex;
-  justify-content: between;
+  justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 16px;
 `;
@@ -78,78 +79,82 @@ const PendingBorrowRequests: React.FC = () => {
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadBorrowRequests();
-    
-    // Set up real-time listener
-    const unsubscribe = FirestoreService.onBorrowRequestsChange((requests) => {
-      dispatch(setBorrowRequests(requests));
-    });
-
-    return () => unsubscribe();
-  }, [dispatch]);
-
   const loadBorrowRequests = async () => {
     dispatch(setLoading(true));
     try {
-      const requests = await FirestoreService.getBorrowRequests();
-      const pendingRequests = requests.filter(req => req.status === 'pending');
-      dispatch(setBorrowRequests(pendingRequests));
+      const pendingRequests = await FirestoreService.getPendingBorrowRequests();
+      // Additional client-side filter to ensure only pending status documents are shown
+      const filteredPendingRequests = pendingRequests.filter(request => request.status === 'pending');
+      
+      console.log('Total requests fetched:', pendingRequests.length);
+      console.log('Filtered pending requests:', filteredPendingRequests.length);
+      console.log('Pending requests data:', filteredPendingRequests.map(r => ({ id: r.id, status: r.status, title: r.bookTitle })));
+      
+      dispatch(setBorrowRequests(filteredPendingRequests));
     } catch (error: any) {
-      console.error('Error loading borrow requests:', error);
+      console.error('Error loading pending borrow requests:', error);
       dispatch(setError(error.message));
     } finally {
       dispatch(setLoading(false));
     }
   };
 
-  const handleApproveRequest = async (request: BorrowRequest) => {
-    setProcessingRequest(request.id);
+  useEffect(() => {
+    loadBorrowRequests();
+    
+    // Set up real-time listener for pending requests only
+    const unsubscribe = FirestoreService.onBorrowRequestsChange((pendingRequests) => {
+      // Additional client-side filter to ensure only pending status documents are shown
+      const filteredPendingRequests = pendingRequests.filter(request => request.status === 'pending');
+      dispatch(setBorrowRequests(filteredPendingRequests));
+    });
+
+    return () => unsubscribe();
+  }, [dispatch]);
+
+  const updateRequest = async (requestId: string, bookId: string, status: 'approved' | 'rejected') => {
+    setProcessingRequest(requestId);
     
     try {
-      // Calculate due date (14 days from now)
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 14);
-
-      // Only update the fields we want to change
-      const updateData = {
-        status: 'approved' as const,
-        processedBy: 'admin',
-        processedAt: new Date(),
-        dueDate: dueDate,
-      };
-
-      await FirestoreService.updateBorrowRequest(request.id, updateData);
+      if (status === 'approved') {
+        // Handle approval with transaction logic
+        const success = await FirestoreService.approveBookRequest(requestId, bookId);
+        
+        if (success) {
+          setSuccessMessage('Request approved successfully');
+          setTimeout(() => setSuccessMessage(null), 3000);
+        } else {
+          // Book was unavailable, request was deleted
+          setSuccessMessage('❌ Book unavailable. Request deleted.');
+          setTimeout(() => setSuccessMessage(null), 3000);
+        }
+      } else {
+        // Handle rejection
+        await FirestoreService.rejectBookRequest(requestId, bookId);
+        setSuccessMessage('Request rejected successfully');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }
       
-      // Update local state with the complete updated request
-      const updatedRequest = { ...request, ...updateData };
-      dispatch(updateBorrowRequest(updatedRequest));
-
-      // Add to processed requests
-      const processedRequest: ProcessedRequest = {
-        id: '',
-        type: 'borrow',
-        userId: request.userId,
-        userName: request.userName,
-        userEmail: request.userEmail,
-        bookId: request.bookId,
-        bookTitle: request.bookTitle,
-        bookAuthor: request.bookAuthor,
-        requestedAt: request.timeStamp,
-        processedAt: new Date(),
-        processedBy: 'admin',
-        status: 'approved' as const,
-      };      await FirestoreService.addProcessedRequest(processedRequest);
-      dispatch(addProcessedRequest(processedRequest));
-
-      setSuccessMessage(`Borrow request for "${request.bookTitle}" has been approved.`);
-      setTimeout(() => setSuccessMessage(null), 3000);
+      // Reload the requests after update
+      await loadBorrowRequests();
+      
     } catch (error: any) {
-      console.error('Error approving request:', error);
-      dispatch(setError(error.message));
+      console.error('Error updating request:', error);
+      dispatch(setError(`Error: ${error.message || error.toString()}`));
     } finally {
       setProcessingRequest(null);
     }
+  };
+
+  const formatDate = (timestamp: Date): string => {
+    const date = new Date(timestamp);
+    const day = date.getDate();
+    const month = date.getMonth() + 1;
+    const year = date.getFullYear();
+    const hours = date.getHours();
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
   };
 
   const handleRejectRequest = async (request: BorrowRequest) => {
@@ -168,25 +173,6 @@ const PendingBorrowRequests: React.FC = () => {
       // Update local state with the complete updated request
       const updatedRequest = { ...request, ...updateData };
       dispatch(updateBorrowRequest(updatedRequest));
-
-      // Add to processed requests
-      const processedRequest = {
-        id: request.id,
-        type: 'borrow' as const,
-        userId: request.userId,
-        userName: request.userName,
-        userEmail: request.userEmail,
-        bookId: request.bookId,
-        bookTitle: request.bookTitle,
-        bookAuthor: request.bookAuthor,
-        requestedAt: request.timeStamp,
-        processedAt: new Date(),
-        processedBy: 'admin',
-        status: 'rejected' as const,
-      };
-
-      await FirestoreService.addProcessedRequest(processedRequest);
-      dispatch(addProcessedRequest(processedRequest));
 
       setSuccessMessage(`Borrow request for "${request.bookTitle}" has been rejected.`);
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -233,7 +219,10 @@ const PendingBorrowRequests: React.FC = () => {
             <RequestHeader>
               <RequestInfo>
                 <RequestTitle>{request.bookTitle}</RequestTitle>
-                <Badge variant="info">Requested by {request.userName}</Badge>
+                <FlexContainer gap="8px">
+                  <Badge variant="info">📖 {request.bookAuthor}</Badge>
+                  <Badge variant="warning">👤 {request.userName}</Badge>
+                </FlexContainer>
               </RequestInfo>
             </RequestHeader>
 
@@ -248,30 +237,30 @@ const PendingBorrowRequests: React.FC = () => {
               </DetailItem>
               <DetailItem>
                 <DetailLabel>Requested At</DetailLabel>
-                <DetailValue>
-                  {request.timeStamp.toLocaleDateString()} at {request.timeStamp.toLocaleTimeString()}
-                </DetailValue>
+                <DetailValue>{formatDate(request.timeStamp)}</DetailValue>
               </DetailItem>
               <DetailItem>
                 <DetailLabel>Status</DetailLabel>
-                <Badge variant="warning">Pending Review</Badge>
+                <Badge variant={request.status === 'pending' ? 'warning' : 'danger'}>
+                  {request.status === 'pending' ? 'Pending Review' : `Status: ${request.status}`}
+                </Badge>
               </DetailItem>
             </RequestDetails>
 
             <ActionButtons>
               <Button
-                variant="danger"
-                onClick={() => handleRejectRequest(request)}
+                variant="success"
+                onClick={() => updateRequest(request.id, request.bookId, 'approved')}
                 disabled={processingRequest === request.id}
               >
-                ❌ Reject
+                {processingRequest === request.id ? '⏳ Processing...' : '✅ Approve'}
               </Button>
               <Button
-                variant="success"
-                onClick={() => handleApproveRequest(request)}
+                variant="danger"
+                onClick={() => updateRequest(request.id, request.bookId, 'rejected')}
                 disabled={processingRequest === request.id}
               >
-                ✅ Approve
+                {processingRequest === request.id ? '⏳ Processing...' : '❌ Reject'}
               </Button>
             </ActionButtons>
           </RequestCard>

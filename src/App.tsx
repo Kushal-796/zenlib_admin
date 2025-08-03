@@ -14,11 +14,9 @@ import Dashboard from './components/pages/Dashboard';
 import PendingBorrowRequests from './components/pages/PendingBorrowRequests';
 import PendingReturnRequests from './components/pages/PendingReturnRequests';
 import ProcessedHistory from './components/pages/ProcessedHistory';
-
-// Placeholder components for now
-const PenaltyManagement = () => <div>Penalty Management - Coming Soon</div>;
-const UsersList = () => <div>Users List - Coming Soon</div>;
-const ManageBooks = () => <div>Manage Books - Coming Soon</div>;
+import PenaltyManagement from './components/pages/PenaltyManagement';
+import UsersList from './components/pages/UsersList';
+import ManageBooks from './components/pages/ManageBooks';
 
 const AppContent: React.FC = () => {
   const dispatch = useAppDispatch();
