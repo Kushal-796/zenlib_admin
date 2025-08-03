@@ -38,6 +38,14 @@ const AppContent: React.FC = () => {
   }, [dispatch]);
 
   const handleLogout = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to logout? You will need to sign in again to access the admin panel.'
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+
     try {
       await AuthService.logout();
     } catch (error: any) {

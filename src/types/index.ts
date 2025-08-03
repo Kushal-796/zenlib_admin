@@ -41,8 +41,6 @@ export interface BorrowRequest {
   // Date tracking fields
   borrowDate?: Date;
   returnDate?: Date;
-  approvedAt?: Date;
-  returnTimestamp?: Date;
 }
 
 export interface ReturnRequest {

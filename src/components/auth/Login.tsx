@@ -41,6 +41,7 @@ const Form = styled.form`
 
 const InputGroup = styled.div`
   text-align: left;
+  width: 100%;
 `;
 
 const Label = styled.label`
@@ -48,6 +49,11 @@ const Label = styled.label`
   color: ${colors.primaryText};
   font-weight: 500;
   margin-bottom: 8px;
+`;
+
+const AlignedInput = styled(Input)`
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const Login: React.FC = () => {
@@ -61,6 +67,12 @@ const Login: React.FC = () => {
     
     if (!email || !password) {
       dispatch(setError('Please fill in all fields'));
+      return;
+    }
+
+    // Restrict access to specific email only
+    if (email !== 'kushal23241a05c7@grietcollege.com') {
+      dispatch(setError('Access denied. Only authorized administrators can access this panel.'));
       return;
     }
 
@@ -85,7 +97,7 @@ const Login: React.FC = () => {
         <Form onSubmit={handleSubmit}>
           <InputGroup>
             <Label htmlFor="email">Email Address</Label>
-            <Input
+            <AlignedInput
               id="email"
               type="email"
               value={email}
@@ -97,7 +109,7 @@ const Login: React.FC = () => {
           
           <InputGroup>
             <Label htmlFor="password">Password</Label>
-            <Input
+            <AlignedInput
               id="password"
               type="password"
               value={password}
